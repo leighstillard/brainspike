@@ -84,7 +84,7 @@ installing a new memory tool).
 
 ## Built-in probes
 
-The repo ships with four sample probes. None are required — drop or add
+The repo ships with five sample probes. None are required — drop or add
 as you like.
 
 | Probe          | Detects                                                     | Query                                              |
@@ -93,6 +93,11 @@ as you like.
 | `auto-memory`  | `~/.claude/projects/*/memory/*.md`                          | `grep -rli` across project memory markdown files   |
 | `graphify`     | `graphify` on PATH + `graphify-out/graph.json` in CWD       | `graphify query` (parsed for cited nodes)          |
 | `markdown-docs`| `docs/`, `doc/`, `Docs/`, or `documentation/` in CWD        | `grep -rli` across markdown files                  |
+| `slack-agent-mem` | installed `slack-recall` skill or sibling `../slack-agent-mem` checkout | `/slack-recall` breadcrumbs for Slack thread recall |
+
+`slack-agent-mem` is breadcrumb-only because Slack access happens through
+Claude Code MCP tools. If the checkout is not a sibling, set
+`SLACK_AGENT_MEM_ROOT` or `SLACK_AGENT_MEM_SKILL` before running `install.sh`.
 
 ## Writing a custom probe
 
