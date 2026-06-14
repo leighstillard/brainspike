@@ -383,6 +383,8 @@ if [ "$DO_REGISTER" = "1" ]; then
         echo "==> Existing $SETTINGS_FILE is not valid JSON. Skipping registration."
         echo "    Add this manually under hooks.UserPromptSubmit:"
         echo "      { \"hooks\": [{ \"type\": \"command\", \"command\": \"$HOOK_FILE\" }] }"
+        echo "    And under hooks.PreToolUse:"
+        echo "      { \"matcher\": \"Grep|Glob|Task|Agent|WebSearch|WebFetch\", \"hooks\": [{ \"type\": \"command\", \"command\": \"$PRETOOL_HOOK_FILE\" }] }"
     else
         tmp_settings="$(mktemp)"
         HOOK_PATH="$HOOK_FILE" PRETOOL_HOOK_PATH="$PRETOOL_HOOK_FILE" jq '
