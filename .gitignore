@@ -2,3 +2,4 @@
 .claude/.credentials.json
 .DS_Store
 *.swp
+.claude/session-state.md
