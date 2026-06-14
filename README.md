@@ -1,8 +1,8 @@
 # brainspike
 
-> A `UserPromptSubmit` hook that searches whatever memory layers it finds in
-> your environment and injects pointers — titles, summaries, paths, IDs — into
-> Claude's context, so it knows what's available before it starts working.
+> `UserPromptSubmit` and precision-scoped `PreToolUse` hooks that search
+> whatever memory layers they find in your environment and inject pointers —
+> titles, summaries, paths, IDs — into Claude's context.
 
 `brainspike` does not feed Claude full memory contents. It feeds Claude
 **breadcrumbs**: "here are 3 things in `claude-mem` that look relevant; if you
@@ -23,6 +23,13 @@ On every prompt:
 
 Output is wrapped in `=== brainspike ===` markers so it shows up cleanly in
 Claude's context but is easy to ignore or filter.
+
+On eligible mid-turn tool calls, the installed PreToolUse hook reconstructs a
+query from the tool input, probes the same active layers, and injects novel
+breadcrumbs via `hookSpecificOutput.additionalContext`. The v1 scope is
+precision-first and only fires for `Grep`, `Glob`, `Task`, `Agent`,
+`WebSearch`, and `WebFetch`. It does not fire for `Bash`, `Read`, `Edit`,
+`Write`, or other `file_path` tools.
 
 ### Example output
 
@@ -65,9 +72,11 @@ The installer:
 
 - Probes each file in `probes/`. A probe must declare itself detectable
   *and* respond to a test query before it's accepted.
-- Generates a tailored hook at `~/.claude/hooks/brainspike.sh` that embeds
-  only the probes that passed.
-- Adds a `UserPromptSubmit` entry pointing at that hook to either
+- Generates tailored hooks at `~/.claude/hooks/brainspike.sh` and
+  `~/.claude/hooks/brainspike-pretool.sh` that embed only the probes that
+  passed.
+- Adds `UserPromptSubmit` and STRONG-scope `PreToolUse` entries pointing at
+  those hooks to either
   `.claude/settings.local.json` (default) or `~/.claude/settings.json`
   (with `--global`). Existing hooks are preserved; double-registration is
   prevented.
@@ -163,8 +172,14 @@ specific tool. Removing a tool from your machine and re-running
 ```bash
 ./install.sh --dry-run                        # see the plan
 ./install.sh --hook /tmp/bs.sh --no-register  # write a throwaway hook
+./install.sh --pretool-hook /tmp/bs-pre.sh --no-register
 echo '{"prompt":"YAML config validation"}' | /tmp/bs.sh
+echo '{"session_id":"s","tool_name":"Task","tool_input":{"prompt":"YAML config validation"}}' | /tmp/bs-pre.sh
 ```
+
+Set `BRAINSPIKE_PRETOOL=0` to disable the hot-path hook without uninstalling.
+PreToolUse fires are logged to `~/.claude/brainspike-pretool.log` with the
+session, tool, query, surfaced keys, and duration.
 
 ## License
 
