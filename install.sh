@@ -86,6 +86,25 @@ tmp_hook="$(mktemp)"
 tmp_pretool_hook="$(mktemp)"
 trap 'rm -f "$tmp_hook" "$tmp_pretool_hook"' EXIT
 
+# Helper functions emitted verbatim into both generated hooks.
+emit_shared_helpers() {
+    cat <<'BS_HELPERS'
+brainspike_session_file() {
+    local sid safe base
+    sid="${SESSION_ID:-unknown}"
+    safe="$(printf '%s' "$sid" | tr -c 'A-Za-z0-9_.-' '_')"
+    base="${TMPDIR:-/tmp}/brainspike"
+    mkdir -p "$base" 2>/dev/null || return 1
+    printf '%s/%s.surfaced\n' "$base" "$safe"
+}
+
+brainspike_key() {
+    local layer="$1" line="$2"
+    printf '%s\0%s' "$layer" "$line" | cksum | awk '{print $1 "-" $2}'
+}
+BS_HELPERS
+}
+
 {
     echo '#!/usr/bin/env bash'
     echo '# brainspike UserPromptSubmit hook'
@@ -98,19 +117,7 @@ trap 'rm -f "$tmp_hook" "$tmp_pretool_hook"' EXIT
     echo 'SESSION_ID="$(printf '"'"'%s'"'"' "$HOOK_INPUT" | jq -r ".session_id // \"unknown\"" 2>/dev/null || echo unknown)"'
     echo 'if [ -z "${PROMPT:-}" ] || [ "${PROMPT}" = "null" ]; then exit 0; fi'
     echo
-    echo 'brainspike_session_file() {'
-    echo '    local sid safe base'
-    echo '    sid="${SESSION_ID:-unknown}"'
-    echo '    safe="$(printf '"'"'%s'"'"' "$sid" | tr -c '"'"'A-Za-z0-9_.-'"'"' '"'"'_'"'"')"'
-    echo '    base="${TMPDIR:-/tmp}/brainspike"'
-    echo '    mkdir -p "$base" 2>/dev/null || return 1'
-    echo '    printf '"'"'%s/%s.surfaced\n'"'"' "$base" "$safe"'
-    echo '}'
-    echo
-    echo 'brainspike_key() {'
-    echo '    local layer="$1" line="$2"'
-    echo '    printf '"'"'%s\0%s'"'"' "$layer" "$line" | cksum | awk '"'"'{print $1 "-" $2}'"'"''
-    echo '}'
+    emit_shared_helpers
     echo
     echo 'brainspike_mark_surfaced() {'
     echo '    local layer="$1" line="$2" state key'
@@ -244,19 +251,7 @@ trap 'rm -f "$tmp_hook" "$tmp_pretool_hook"' EXIT
     echo 'esac'
     echo '[ -z "${QUERY:-}" ] || [ "${QUERY}" = "null" ] && exit 0'
     echo
-    echo 'brainspike_session_file() {'
-    echo '    local sid safe base'
-    echo '    sid="${SESSION_ID:-unknown}"'
-    echo '    safe="$(printf '"'"'%s'"'"' "$sid" | tr -c '"'"'A-Za-z0-9_.-'"'"' '"'"'_'"'"')"'
-    echo '    base="${TMPDIR:-/tmp}/brainspike"'
-    echo '    mkdir -p "$base" 2>/dev/null || return 1'
-    echo '    printf '"'"'%s/%s.surfaced\n'"'"' "$base" "$safe"'
-    echo '}'
-    echo
-    echo 'brainspike_key() {'
-    echo '    local layer="$1" line="$2"'
-    echo '    printf '"'"'%s\0%s'"'"' "$layer" "$line" | cksum | awk '"'"'{print $1 "-" $2}'"'"''
-    echo '}'
+    emit_shared_helpers
     echo
     echo 'brainspike_seen() {'
     echo '    local layer="$1" line="$2" state key'
