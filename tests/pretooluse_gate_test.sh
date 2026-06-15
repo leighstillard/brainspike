@@ -40,6 +40,7 @@ probe_query() {
     case "$query" in
         *alpha*) printf '  - "Alpha decision" (fixture/alpha.md)\n' ;;
         *bravo*) printf '  - "Bravo note" (fixture/bravo.md)\n' ;;
+        *multi*) printf '  - "Multi one" (fixture/m1.md)\n  - "Multi two" (fixture/m2.md)\n  - "Multi three" (fixture/m3.md)\n' ;;
     esac
 }
 
@@ -130,5 +131,32 @@ seeded="$("$PRETOOL_HOOK" <<'JSON'
 JSON
 )"
 assert_empty "$seeded" "PreToolUse dedups against UserPromptSubmit surfaced set"
+
+# --- per-prompt across-turn dedup / cap / all-seen behaviour (regression guards) ---
+
+# All-seen: a layer that matched but whose hits were all surfaced earlier must go
+# SILENT — not falsely print "no matches" and not dump the layer registry.
+allseen1="$(printf '%s\n' '{"session_id":"session-e","prompt":"alpha"}' | "$HOOK")"
+assert_contains "$allseen1" "Alpha decision" "all-seen turn 1 surfaces the breadcrumb"
+allseen2="$(printf '%s\n' '{"session_id":"session-e","prompt":"alpha"}' | "$HOOK")"
+assert_empty "$allseen2" "all-seen turn 2 is silent (no false no-matches, no registry dump)"
+
+# Genuinely-empty (no layer matched at all) still shows the registry fallback.
+emptyq="$(printf '%s\n' '{"session_id":"session-f","prompt":"zzz-unmatchable-qwerty"}' | "$HOOK")"
+assert_contains "$emptyq" "No matches in any layer" "genuinely-empty query shows registry fallback"
+
+# Cap + paging: with MENTIS_MAX=2 a 3-result query shows 2 (capped) on turn 1, then
+# advances to the remaining 1 on turn 2 (dedup), then goes silent once exhausted.
+export MENTIS_MAX=2
+page1="$(printf '%s\n' '{"session_id":"session-g","prompt":"multi"}' | "$HOOK")"
+assert_contains "$page1" "Multi one"  "cap/paging turn 1 includes first"
+assert_contains "$page1" "Multi two"  "cap/paging turn 1 includes second"
+[[ "$page1" != *"Multi three"* ]] || fail "cap: turn 1 must not exceed MENTIS_MAX=2"
+page2="$(printf '%s\n' '{"session_id":"session-g","prompt":"multi"}' | "$HOOK")"
+assert_contains "$page2" "Multi three" "paging turn 2 advances to the next page"
+[[ "$page2" != *"Multi one"* ]] || fail "dedup: turn 2 must not repeat turn 1"
+page3="$(printf '%s\n' '{"session_id":"session-g","prompt":"multi"}' | "$HOOK")"
+assert_empty "$page3" "paging exhausted => silent"
+unset MENTIS_MAX
 
 echo "pretooluse gate tests passed"

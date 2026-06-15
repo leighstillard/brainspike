@@ -76,7 +76,8 @@ for item in sorted(items, key=score_of, reverse=True):
     # dedicated tasksquad-handoff probe; here they are pure duplicated noise.
     if "tasksquad_kind" in content:
         continue
-    tags = th.get("tags") or []
+    tags = th.get("tags")
+    tags = tags if isinstance(tags, list) else []
     is_feedback = content.startswith("[feedback_") or "feedback" in tags
     # Cross-project hits are dropped, but never feedback ("how to work with Leigh").
     if not is_feedback and is_foreign_project(tags):
@@ -98,15 +99,20 @@ probe_query() {
     local query="$1" tmp
     tmp="$(mktemp)" || return 0
     # Scope to the current repo (override with MENTIS_PROJECT; empty => no scoping).
+    # Portable basename (no xargs -r, space-safe); git -C "$PWD" matches the
+    # sibling tasksquad probe.
     if [ -z "${MENTIS_PROJECT:-}" ] && command -v git >/dev/null 2>&1; then
-        MENTIS_PROJECT="$(git rev-parse --show-toplevel 2>/dev/null | xargs -r basename 2>/dev/null)"
+        MENTIS_PROJECT="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null)"
+        MENTIS_PROJECT="${MENTIS_PROJECT##*/}"
     fi
     export MENTIS_PROJECT
     timeout 3 curl -s --max-time 3 -X POST "$PROBE_HOST/v1/ranked-search" \
         -H "Content-Type: application/json" \
         -d "$(jq -nc --arg q "$query" '{text: $q, limit: 12}')" 2>/dev/null > "$tmp"
-    # Fewer, higher-relevance: cap to the top MENTIS_MAX (default 4) after filtering.
-    _mentis_filter "$tmp" | head -n "${MENTIS_MAX:-4}"
+    # Emit the full relevance-ranked filtered list; the consuming hook applies the
+    # MENTIS_MAX cap *after* across-turn dedup so repeats advance to the next page
+    # rather than starving rank-5+ hits.
+    _mentis_filter "$tmp"
     rm -f "$tmp"
 }
 

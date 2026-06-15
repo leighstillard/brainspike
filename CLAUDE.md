@@ -67,9 +67,10 @@ that embed only the probes that passed. Removing a tool and re-running
   breadcrumbs already in this set: the UserPromptSubmit hook dedups across turns
   (a breadcrumb shown on a prior prompt won't re-surface) *and* seeds the set, so
   the PreToolUse hook won't re-fire anything already shown at any prompt. Each
-  layer caps at `MENTIS_MAX` (default 4) breadcrumbs (top by score, after
-  threshold + scope); already-surfaced ones are then suppressed, so a repeated
-  query can show fewer or go quiet.
+  layer caps at `MENTIS_MAX` (default 4) *novel* breadcrumbs per fire — dedup is
+  applied first, then the cap, so a repeated query advances to the next page of
+  results and goes quiet once exhausted (rather than re-showing, starving
+  lower-ranked hits, or falsely reporting "no matches").
 
 ### Hard constraints the generated hooks must keep
 
