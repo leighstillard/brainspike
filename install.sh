@@ -119,6 +119,13 @@ BS_HELPERS
     echo
     emit_shared_helpers
     echo
+    echo 'brainspike_seen() {'
+    echo '    local layer="$1" line="$2" state key'
+    echo '    state="$(brainspike_session_file)" || return 1'
+    echo '    key="${layer}:$(brainspike_key "$layer" "$line")"'
+    echo '    grep -Fxq "$key" "$state" 2>/dev/null'
+    echo '}'
+    echo
     echo 'brainspike_mark_surfaced() {'
     echo '    local layer="$1" line="$2" state key'
     echo '    state="$(brainspike_session_file)" || return 0'
@@ -129,8 +136,6 @@ BS_HELPERS
     echo
     echo 'BRAINSPIKE_TMP="$(mktemp -d 2>/dev/null || mktemp -d -t brainspike)"'
     echo 'trap '"'"'rm -rf "$BRAINSPIKE_TMP"'"'"' EXIT'
-    echo
-    echo 'ANY_RESULTS=0'
     echo
     echo '# --- registry of active layers (for breadcrumbs / fallback) ---'
     echo 'BRAINSPIKE_LAYERS=('
@@ -176,15 +181,30 @@ BS_HELPERS
         cat "$f"
         echo "    output=\"\$(probe_query \"\$PROMPT\" 2>/dev/null || true)\""
         echo "    bc=\"\${BRAINSPIKE_BREADCRUMBS[$n]:-\$(probe_breadcrumb 2>/dev/null)}\""
-        echo "    if [ -n \"\$output\" ]; then"
-        echo "        count=\$(printf '%s\\n' \"\$output\" | grep -c '^')"
+        echo "    # Across-turn dedup: surface only breadcrumbs not shown this session,"
+        echo "    # capped at MENTIS_MAX *novel* lines so a repeated query advances to the"
+        echo "    # next page rather than re-showing or starving rank-N+ hits."
+        echo "    novel=\"\$BRAINSPIKE_TMP/$n.novel\""
+        echo "    : > \"\$novel\""
+        echo "    matched=0; novelcount=0"
+        echo "    while IFS= read -r line; do"
+        echo "        [ -n \"\$line\" ] || continue"
+        echo "        matched=1"
+        echo "        brainspike_seen \"$n\" \"\$line\" && continue"
+        echo "        printf '%s\\n' \"\$line\" >> \"\$novel\""
+        echo "        brainspike_mark_surfaced \"$n\" \"\$line\""
+        echo "        novelcount=\$((novelcount+1))"
+        echo "        [ \"\$novelcount\" -ge \"\${MENTIS_MAX:-4}\" ] && break"
+        echo "    done <<< \"\$output\""
+        echo "    [ \"\$matched\" = \"1\" ] && echo 1 > \"\$BRAINSPIKE_TMP/$n.matched\""
+        echo "    if [ -s \"\$novel\" ]; then"
+        echo "        count=\$(grep -c '^' \"\$novel\" 2>/dev/null || echo 0)"
         echo "        printf '%s (%d match%s, run \`%s\` for more):\\n' \"$n\" \"\$count\" \"\$( [ \"\$count\" -eq 1 ] || echo 'es' )\" \"\$bc\" >> \"\$OUT_FILE\""
-        echo "        printf '%s\\n\\n' \"\$output\" >> \"\$OUT_FILE\""
-        echo "        while IFS= read -r line; do"
-        echo "            [ -n \"\$line\" ] && brainspike_mark_surfaced \"$n\" \"\$line\""
-        echo "        done <<< \"\$output\""
+        echo "        cat \"\$novel\" >> \"\$OUT_FILE\""
+        echo "        printf '\\n' >> \"\$OUT_FILE\""
         echo "        echo 1 > \"\$BRAINSPIKE_TMP/$n.hit\""
-        echo "    else"
+        echo "    elif [ \"\$matched\" != \"1\" ]; then"
+        echo "        # Genuinely no matches (distinct from all-seen, which stays silent)."
         echo "        printf '%s: no matches\\n\\n' \"$n\" >> \"\$OUT_FILE\""
         echo "    fi"
         echo ") &"
@@ -199,14 +219,22 @@ BS_HELPERS
     echo 'done'
     echo 'wait 2>/dev/null || true'
     echo
-    echo 'for f in "$BRAINSPIKE_TMP"/*.hit; do'
-    echo '    [ -f "$f" ] && ANY_RESULTS=1'
-    echo 'done'
+    echo 'HAS_NOVEL=0; HAS_MATCH=0'
+    echo 'for f in "$BRAINSPIKE_TMP"/*.hit; do [ -f "$f" ] && HAS_NOVEL=1; done'
+    echo 'for f in "$BRAINSPIKE_TMP"/*.matched; do [ -f "$f" ] && HAS_MATCH=1; done'
     echo
-    echo 'echo "=== brainspike ==="'
-    echo 'if [ "$ANY_RESULTS" = "1" ]; then'
+    echo '# Novel breadcrumbs -> show the block. Matched but all already surfaced this'
+    echo '# session -> stay silent (the dedup did its job; do not re-assert "no matches"'
+    echo '# or re-dump the registry). Nothing matched anywhere -> one-time registry hint.'
+    echo 'if [ "$HAS_NOVEL" = "1" ]; then'
+    echo '    echo "=== brainspike ==="'
     echo '    cat "$OUT_FILE"'
-    echo 'else'
+    echo '    echo'
+    echo '    echo "Consult these before asking the user for context you could find yourself."'
+    echo '    echo "Top results shown per layer (capped, repeats suppressed) — use the commands above for deeper searches."'
+    echo '    echo "=== end brainspike ==="'
+    echo 'elif [ "$HAS_MATCH" != "1" ]; then'
+    echo '    echo "=== brainspike ==="'
     echo '    if [ ${#BRAINSPIKE_LAYERS[@]} -eq 0 ]; then'
     echo '        echo "(no memory layers configured at install time)"'
     echo '    else'
@@ -221,11 +249,8 @@ BS_HELPERS
     echo '            fi'
     echo '        done'
     echo '    fi'
+    echo '    echo "=== end brainspike ==="'
     echo 'fi'
-    echo 'echo'
-    echo 'echo "Consult these before asking the user for context you could find yourself."'
-    echo 'echo "Top 5 results shown per layer — use the commands above for deeper searches."'
-    echo 'echo "=== end brainspike ==="'
     echo 'exit 0'
 } > "$tmp_hook"
 
@@ -294,11 +319,14 @@ BS_HELPERS
         echo "    wait \"\$killer_pid\" 2>/dev/null || true"
         echo "    novel=\"\$BRAINSPIKE_TMP/$n.novel\""
         echo "    : > \"\$novel\""
+        echo "    novelcount=0"
         echo "    while IFS= read -r line; do"
         echo "        [ -n \"\$line\" ] || continue"
         echo "        if ! brainspike_seen \"$n\" \"\$line\"; then"
         echo "            printf '%s\\n' \"\$line\" >> \"\$novel\""
         echo "            brainspike_mark_surfaced \"$n\" \"\$line\""
+        echo "            novelcount=\$((novelcount+1))"
+        echo "            [ \"\$novelcount\" -ge \"\${MENTIS_MAX:-4}\" ] && break"
         echo "        fi"
         echo "    done < \"\$probe_out\""
         echo "    if [ -s \"\$novel\" ]; then"
