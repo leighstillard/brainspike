@@ -119,6 +119,13 @@ BS_HELPERS
     echo
     emit_shared_helpers
     echo
+    echo 'brainspike_seen() {'
+    echo '    local layer="$1" line="$2" state key'
+    echo '    state="$(brainspike_session_file)" || return 1'
+    echo '    key="${layer}:$(brainspike_key "$layer" "$line")"'
+    echo '    grep -Fxq "$key" "$state" 2>/dev/null'
+    echo '}'
+    echo
     echo 'brainspike_mark_surfaced() {'
     echo '    local layer="$1" line="$2" state key'
     echo '    state="$(brainspike_session_file)" || return 0'
@@ -176,13 +183,21 @@ BS_HELPERS
         cat "$f"
         echo "    output=\"\$(probe_query \"\$PROMPT\" 2>/dev/null || true)\""
         echo "    bc=\"\${BRAINSPIKE_BREADCRUMBS[$n]:-\$(probe_breadcrumb 2>/dev/null)}\""
-        echo "    if [ -n \"\$output\" ]; then"
-        echo "        count=\$(printf '%s\\n' \"\$output\" | grep -c '^')"
+        echo "    # Across-turn dedup: only surface breadcrumbs not already shown this session."
+        echo "    novel=\"\$BRAINSPIKE_TMP/$n.novel\""
+        echo "    : > \"\$novel\""
+        echo "    while IFS= read -r line; do"
+        echo "        [ -n \"\$line\" ] || continue"
+        echo "        if ! brainspike_seen \"$n\" \"\$line\"; then"
+        echo "            printf '%s\\n' \"\$line\" >> \"\$novel\""
+        echo "            brainspike_mark_surfaced \"$n\" \"\$line\""
+        echo "        fi"
+        echo "    done <<< \"\$output\""
+        echo "    if [ -s \"\$novel\" ]; then"
+        echo "        count=\$(grep -c '^' \"\$novel\" 2>/dev/null || echo 0)"
         echo "        printf '%s (%d match%s, run \`%s\` for more):\\n' \"$n\" \"\$count\" \"\$( [ \"\$count\" -eq 1 ] || echo 'es' )\" \"\$bc\" >> \"\$OUT_FILE\""
-        echo "        printf '%s\\n\\n' \"\$output\" >> \"\$OUT_FILE\""
-        echo "        while IFS= read -r line; do"
-        echo "            [ -n \"\$line\" ] && brainspike_mark_surfaced \"$n\" \"\$line\""
-        echo "        done <<< \"\$output\""
+        echo "        cat \"\$novel\" >> \"\$OUT_FILE\""
+        echo "        printf '\\n' >> \"\$OUT_FILE\""
         echo "        echo 1 > \"\$BRAINSPIKE_TMP/$n.hit\""
         echo "    else"
         echo "        printf '%s: no matches\\n\\n' \"$n\" >> \"\$OUT_FILE\""
@@ -224,7 +239,7 @@ BS_HELPERS
     echo 'fi'
     echo 'echo'
     echo 'echo "Consult these before asking the user for context you could find yourself."'
-    echo 'echo "Top 5 results shown per layer — use the commands above for deeper searches."'
+    echo 'echo "Top results shown per layer (capped, repeats suppressed) — use the commands above for deeper searches."'
     echo 'echo "=== end brainspike ==="'
     echo 'exit 0'
 } > "$tmp_hook"
